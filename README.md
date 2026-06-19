@@ -114,6 +114,15 @@ working). Using another theme? Edit the hex values.
 
 `tmux` · `jq` · `python3` · `bash`
 
+On Termux:
+
+```sh
+./install.sh --all
+```
+
+When running on Termux, the installer automatically installs missing
+dependencies (`tmux`, `jq`, `python`) before continuing.
+
 Sound is **best-effort and optional**: macOS uses `afplay`; Linux falls back to
 `paplay` → `canberra-gtk-play` → `aplay`, whichever exists. No player, no sound —
 nothing breaks.
