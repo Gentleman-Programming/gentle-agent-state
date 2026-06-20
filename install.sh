@@ -63,7 +63,7 @@ if [ -n "$missing" ]; then
   if is_termux && command -v pkg >/dev/null 2>&1 && [ -n "$termux_packages" ]; then
     say "📦 Termux detected. Installing required packages:$termux_packages"
     say "   Running: pkg install -y$termux_packages"
-    pkg install -y $termux_packages
+    pkg install -y $termux_packages || true
     check_dependencies
   fi
 
