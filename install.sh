@@ -1,4 +1,5 @@
-#!/usr/bin/env bash
+#!/bin/sh
+[ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
 # install.sh — tmux agent-state notifier installer.
 #
 # Installs the tmux display layer + normalization core, and (opt-in) the per-agent
@@ -26,22 +27,54 @@ for arg in "$@"; do
     --with-codex)    want_codex=1 ;;
     --all)           want_all=1 ;;
     -h|--help)
-      sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
+      sed -n '3,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown flag: $arg (try --help)" >&2; exit 1 ;;
   esac
 done
 
 say() { printf '%s\n' "$*"; }
 
+is_termux() {
+  case "${PREFIX:-}" in
+    /data/data/com.termux/files/usr*) return 0 ;;
+  esac
+
+  case "$(uname -o 2>/dev/null || true)" in
+    *Android*) return 0 ;;
+  esac
+
+  [ -d "/data/data/com.termux/files/usr" ]
+}
+
 # --- dependency check ---
 missing=""
-command -v tmux    >/dev/null 2>&1 || missing="$missing tmux"
-command -v jq      >/dev/null 2>&1 || missing="$missing jq"
-command -v python3 >/dev/null 2>&1 || missing="$missing python3"
+termux_packages=""
+
+check_dependencies() {
+  missing=""
+  termux_packages=""
+  command -v tmux    >/dev/null 2>&1 || { missing="$missing tmux"; termux_packages="$termux_packages tmux"; }
+  command -v jq      >/dev/null 2>&1 || { missing="$missing jq"; termux_packages="$termux_packages jq"; }
+  command -v python3 >/dev/null 2>&1 || { missing="$missing python3"; termux_packages="$termux_packages python"; }
+}
+
+check_dependencies
 if [ -n "$missing" ]; then
-  say "❌ missing required tools:$missing"
-  say "   install them and re-run. (jq + python3 power the claude/codex hook adapters)"
-  exit 1
+  if is_termux && command -v pkg >/dev/null 2>&1 && [ -n "$termux_packages" ]; then
+    say "📦 Termux detected. Installing required packages:$termux_packages"
+    say "   Running: pkg install -y$termux_packages"
+    pkg install -y $termux_packages || true
+    check_dependencies
+  fi
+
+  if [ -n "$missing" ]; then
+    say "❌ missing required tools:$missing"
+    say "   install them and re-run. (jq + python3 power the claude/codex hook adapters)"
+    if is_termux && command -v pkg >/dev/null 2>&1 && [ -n "$termux_packages" ]; then
+      say "   Termux: pkg install -y$termux_packages"
+    fi
+    exit 1
+  fi
 fi
 
 # --- core: scripts + display layer ---
