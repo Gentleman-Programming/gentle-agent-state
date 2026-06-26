@@ -33,6 +33,36 @@ function isBlockingTool(ev) {
   );
 }
 
+function toolCallId(ev) {
+  return String(ev?.toolCallId ?? ev?.id ?? "");
+}
+
+function toolInput(ev) {
+  return ev?.input ?? ev?.args ?? ev?.tool?.input ?? {};
+}
+
+function isBashTool(ev) {
+  const name = toolName(ev).toLowerCase().replace(/[^a-z0-9]/g, "");
+  return name.endsWith("bash");
+}
+
+function isGuardedBashTool(ev) {
+  if (!isBashTool(ev)) return false;
+  const command = String(toolInput(ev)?.command ?? "");
+  return [
+    /\bgit(?:\s+--?\S+(?:\s+[^-\s]\S*)?)*\s+push\b/,
+    /\bgit\s+rebase\b/,
+    /\bgit\s+branch\s+(?:-[a-zA-Z]*D[a-zA-Z]*|-[a-zA-Z]*d[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*d[a-zA-Z]*|--delete\b[^\n]*--force\b|--force\b[^\n]*--delete\b)/,
+    /\bnpm\s+publish\b/,
+    /\bpi\s+remove\b/,
+    /\brm\s+-rf\s+(?:\/(?:\s|$)|~(?:\/|\s|$)|[$]HOME(?:\/|\s|$)|\.\.?(?:\s|$))/,
+    /\bgit\s+reset\s+--hard\b/,
+    /\bgit\s+clean\b(?=[^\n]*(?:-[^\n]*f|--force))(?=[^\n]*(?:-[^\n]*d|--directories))/,
+    /\bchmod\s+-R\s+777\b/,
+    /\bchown\s+-R\b/,
+  ].some((pattern) => pattern.test(command));
+}
+
 export default function (pi) {
   if (!enabled) return;
 
@@ -63,22 +93,34 @@ export default function (pi) {
   // blocked = pi is waiting on the user. Pi user prompts are surfaced through
   // tools/events rather than a dedicated lifecycle event. Match normalized tool
   // names so namespaced forms like `functions.ask_user_question` work too.
+  const guardedToolCalls = new Set();
+
   const markBlockedIfNeeded = (ev) => {
-    if (isBlockingTool(ev)) {
+    if (isBlockingTool(ev) || isGuardedBashTool(ev)) {
+      const id = toolCallId(ev);
+      if (id) guardedToolCalls.add(id);
       clearIdle();
       report("blocked");
     }
   };
 
-  pi.on?.("tool_call", markBlockedIfNeeded);
+  const markWorkingIfBlockedToolContinues = (ev) => {
+    const id = toolCallId(ev);
+    if ((id && guardedToolCalls.has(id)) || isBlockingTool(ev)) {
+      if (id) guardedToolCalls.delete(id);
+      report("working"); // prompt answered or guarded bash started producing output
+    }
+  };
 
   pi.on?.("tool_execution_start", markBlockedIfNeeded);
 
-  pi.on?.("tool_execution_end", (ev) => {
-    if (isBlockingTool(ev)) {
-      report("working"); // answer received, agent keeps going
-    }
-  });
+  pi.on?.("tool_call", markBlockedIfNeeded);
+
+  pi.on?.("tool_execution_update", markWorkingIfBlockedToolContinues);
+
+  pi.on?.("tool_result", markWorkingIfBlockedToolContinues);
+
+  pi.on?.("tool_execution_end", markWorkingIfBlockedToolContinues);
 
   pi.on?.("session_shutdown", () => {
     clearIdle();
