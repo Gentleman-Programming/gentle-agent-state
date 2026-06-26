@@ -47,8 +47,8 @@ Want only specific agents?
 
 | State | Meaning | tmux display | Zellij display | Alert |
 |-------|---------|--------------|----------------|-------|
-| `working` | Agent is running | 🟠 orange dot | tab + pane title: `● agent working` | none |
-| `blocked` | Agent is waiting for you | 🔴 red dot | tab + pane title: `● agent blocked` | sound + flash/message |
+| `working` | Agent is running | 🟠 orange dot | tab suffix + pane title: `api ● agent working` | none |
+| `blocked` | Agent is waiting for you | 🔴 red dot | tab suffix + pane title: `api ● agent blocked` | sound + flash/message |
 | `idle` | Agent finished or is not running | no dot | original tab + pane titles restored | sound after busy state |
 
 ### tmux behavior
@@ -64,9 +64,9 @@ So if any pane in a tmux window is blocked, that window turns red.
 ### Zellij behavior
 
 Zellij does not expose tmux-style window user options, so the backend uses native
-renaming actions instead. The tab title shows the worst state across panes in that
-tab, and the exact agent pane title shows its own state. Original tab names are
-remembered and restored when the tab returns to idle.
+renaming actions instead. The tab title keeps its original name and appends the
+worst state across panes in that tab, while the exact agent pane title shows its own
+state. Original tab names are remembered and restored when the tab returns to idle.
 
 ---
 
