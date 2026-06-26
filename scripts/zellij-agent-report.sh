@@ -139,9 +139,12 @@ clean_tab_name() {
 
 remember_tab_name() {
 	[ -n "$tab_original_file" ] || return 0
-	[ -f "$tab_original_file" ] && return 0
-	original="$(clean_tab_name "$tab_name")"
-	printf '%s' "$original" >"$tab_original_file" 2>/dev/null || true
+	current="$(clean_tab_name "$tab_name")"
+	# If the user manually renamed the tab while the agent suffix was active,
+	# prefer the current visible base name over the stale cached one.
+	if [ -n "$current" ] && { [ ! -f "$tab_original_file" ] || [ "$tab_name" = "$current" ]; }; then
+		printf '%s' "$current" >"$tab_original_file" 2>/dev/null || true
+	fi
 }
 
 rename_tab() {
@@ -158,17 +161,19 @@ rename_tab() {
 
 restore_tab() {
 	[ -n "$tab_id" ] || return 0
+	original=""
 	if [ -n "$tab_original_file" ] && [ -f "$tab_original_file" ]; then
 		original="$(cat "$tab_original_file" 2>/dev/null || true)"
-		if [ -n "$original" ]; then
-			zellij action rename-tab --tab-id "$tab_id" "$original" >/dev/null 2>&1 || true
-		else
-			zellij action undo-rename-tab --tab-id "$tab_id" >/dev/null 2>&1 || true
-		fi
-		rm -f "$tab_original_file" 2>/dev/null || true
+	fi
+	if [ -z "$original" ]; then
+		original="$(clean_tab_name "$tab_name")"
+	fi
+	if [ -n "$original" ]; then
+		zellij action rename-tab --tab-id "$tab_id" "$original" >/dev/null 2>&1 || true
 	else
 		zellij action undo-rename-tab --tab-id "$tab_id" >/dev/null 2>&1 || true
 	fi
+	rm -f "$tab_original_file" 2>/dev/null || true
 }
 
 rollup_tab_state() {
