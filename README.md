@@ -11,7 +11,7 @@ emit lifecycle events, this project normalizes them into `working`, `blocked`, a
 - **Agents:** opencode, pi, Claude Code, and Codex.
 
 ```text
-  1 api ●      2 claude x      3 notes
+  1 api o      2 claude x      3 notes
   (orange)    (red, beeps)    (idle)
 ```
 
@@ -46,7 +46,7 @@ Want only specific agents?
 
 | State | Meaning | tmux display | Zellij display | Alert |
 |-------|---------|--------------|----------------|-------|
-| `working` | Agent is running | `●` in orange | pane title: `●` | none |
+| `working` | Agent is running | `o` in orange | pane title: `o` | none |
 | `blocked` | Agent is waiting for you | `x` in red | pane title: `x` | sound + flash/message |
 | `idle` | Agent finished or is not running | no marker | pane title restored | sound after busy state |
 
