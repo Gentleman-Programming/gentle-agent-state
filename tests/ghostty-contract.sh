@@ -32,7 +32,7 @@ wait_for_log() {
   fail "$label: expected log line $(printf %q "$expected")"
 }
 
-printf '1..20\n'
+printf '1..21\n'
 
 # Keep shell syntax coverage deterministic and dependency-free.
 bash -n install.sh uninstall.sh scripts/*.sh tmux/scripts/*.sh tests/*.sh
@@ -46,8 +46,10 @@ osc_base_idle=$'\033]2;project\007'
 osc_existing_working=$'\033]2;existing-tab o\007'
 osc_existing_blocked=$'\033]2;existing-tab x\007'
 osc_literal_x_working=$'\033]2;release x o\007'
+osc_fish_working=$'\033]2;fish-tab o\007'
 
-ghostty_env=(env -i HOME="$HOME" PATH="$PATH" TERM_PROGRAM=ghostty AGENT_GHOSTTY_FORCE_STDOUT=1)
+early_runtime="$(mktemp -d)"
+ghostty_env=(env -i HOME="$HOME" PATH="$PATH" SHELL=/bin/sh TERM_PROGRAM=ghostty AGENT_GHOSTTY_FORCE_STDOUT=1 XDG_RUNTIME_DIR="$early_runtime")
 
 actual="$(${ghostty_env[@]} bash scripts/agent-report.sh ghostty blocked)"
 assert_eq "$osc_blocked" "$actual" "Ghostty dispatcher emits blocked title"
@@ -74,8 +76,19 @@ actual="$(env -i HOME="$HOME" PATH="$PATH" TERM_PROGRAM=ghostty AGENT_GHOSTTY_FO
 assert_eq "$osc_literal_x_working" "$actual" "Ghostty preserves fresh titles ending in marker text"
 rm -rf "$literal_runtime"
 
+fish_runtime="$(mktemp -d)"
+fish_bin="$fish_runtime/fish"
+cat > "$fish_bin" <<'FISH'
+#!/usr/bin/env bash
+printf 'fish-tab\n'
+FISH
+chmod +x "$fish_bin"
+actual="$(env -i HOME="$HOME" PATH="$fish_runtime:$PATH" SHELL=/usr/bin/fish TERM_PROGRAM=ghostty AGENT_GHOSTTY_FORCE_STDOUT=1 XDG_RUNTIME_DIR="$fish_runtime" AGENT_GHOSTTY_STATE_KEY=fish bash scripts/agent-report.sh ghostty working)"
+assert_eq "$osc_fish_working" "$actual" "Ghostty falls back to fish_title when title query is unavailable"
+rm -rf "$fish_runtime"
+
 tmp_home="$(mktemp -d)"
-cleanup() { rm -rf "$tmp_home" "${install_home:-}" "${adapter_home:-}"; }
+cleanup() { rm -rf "$early_runtime" "$tmp_home" "${install_home:-}" "${adapter_home:-}"; }
 trap cleanup EXIT
 mkdir -p "$tmp_home/.config/agent-state/scripts" "$tmp_home/fake-bin" "$tmp_home/runtime"
 cp scripts/*.sh "$tmp_home/.config/agent-state/scripts/"
@@ -88,7 +101,7 @@ chmod +x "$tmp_home/fake-bin/afplay"
 touch "$tmp_home/blocked.aiff" "$tmp_home/idle.aiff"
 sound_log="$tmp_home/sound.log"
 : > "$sound_log"
-sound_env=(env -i HOME="$tmp_home" PATH="$tmp_home/fake-bin:$PATH" TERM_PROGRAM=ghostty AGENT_GHOSTTY_FORCE_STDOUT=1 XDG_RUNTIME_DIR="$tmp_home/runtime" AGENT_GHOSTTY_STATE_KEY=contract AGENT_SOUND_BLOCKED="$tmp_home/blocked.aiff" AGENT_SOUND_IDLE="$tmp_home/idle.aiff" AGENT_SOUND_LOG="$sound_log")
+sound_env=(env -i HOME="$tmp_home" PATH="$tmp_home/fake-bin:$PATH" SHELL=/bin/sh TERM_PROGRAM=ghostty AGENT_GHOSTTY_FORCE_STDOUT=1 XDG_RUNTIME_DIR="$tmp_home/runtime" AGENT_GHOSTTY_STATE_KEY=contract AGENT_SOUND_BLOCKED="$tmp_home/blocked.aiff" AGENT_SOUND_IDLE="$tmp_home/idle.aiff" AGENT_SOUND_LOG="$sound_log")
 
 actual="$(${sound_env[@]} bash scripts/agent-report.sh ghostty blocked)"
 assert_eq "$osc_blocked" "$actual" "Ghostty blocked keeps title while playing sound"
@@ -108,12 +121,12 @@ wait_for_log "$sound_log" "idle.aiff" "Ghostty idle after working plays idle sou
 
 key_runtime="$tmp_home/key-runtime"
 mkdir -p "$key_runtime"
-env -i HOME="$tmp_home" PATH="$tmp_home/fake-bin:$PATH" TERM_PROGRAM=ghostty AGENT_GHOSTTY_FORCE_STDOUT=1 XDG_RUNTIME_DIR="$key_runtime" AGENT_SOUND_BLOCKED="$tmp_home/blocked.aiff" AGENT_SOUND_IDLE="$tmp_home/idle.aiff" AGENT_SOUND_LOG="$sound_log" bash scripts/agent-report.sh ghostty blocked >/dev/null
+env -i HOME="$tmp_home" PATH="$tmp_home/fake-bin:$PATH" SHELL=/bin/sh TERM_PROGRAM=ghostty AGENT_GHOSTTY_FORCE_STDOUT=1 XDG_RUNTIME_DIR="$key_runtime" AGENT_SOUND_BLOCKED="$tmp_home/blocked.aiff" AGENT_SOUND_IDLE="$tmp_home/idle.aiff" AGENT_SOUND_LOG="$sound_log" bash scripts/agent-report.sh ghostty blocked >/dev/null
 [ ! -e "$key_runtime/agent-state-ghostty/not_a_tty.state" ] || fail "Ghostty default state key used literal not_a_tty"
 find "$key_runtime/agent-state-ghostty" -type f -name '*.state' | grep -q . || fail "Ghostty default state key did not create a state file"
 printf 'ok - Ghostty default state key avoids not_a_tty collision\n'
 
-hook_env=(env -i HOME="$tmp_home" PATH="$PATH" TERM_PROGRAM=ghostty AGENT_GHOSTTY_FORCE_STDOUT=1)
+hook_env=(env -i HOME="$tmp_home" PATH="$PATH" SHELL=/bin/sh TERM_PROGRAM=ghostty AGENT_GHOSTTY_FORCE_STDOUT=1)
 
 actual="$(${hook_env[@]} bash scripts/hook-adapter.sh Stop </dev/null)"
 assert_eq "$osc_idle" "$actual" "hook adapter routes Ghostty Stop to idle"
@@ -141,7 +154,7 @@ REPORT
 chmod +x "$adapter_home/.config/agent-state/scripts/agent-report.sh"
 
 log="$adapter_home/report.log"
-node_env=(env -i HOME="$adapter_home" PATH="$PATH" TERM_PROGRAM=ghostty AGENT_REPORT_LOG="$log")
+node_env=(env -i HOME="$adapter_home" PATH="$PATH" SHELL=/bin/sh TERM_PROGRAM=ghostty AGENT_REPORT_LOG="$log")
 
 "${node_env[@]}" node --input-type=module <<'NODE'
 const mod = await import(`file://${process.cwd()}/adapters/opencode/gentle-agent-state.js`);

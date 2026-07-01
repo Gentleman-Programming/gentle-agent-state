@@ -100,6 +100,18 @@ query_title() {
 	esac
 }
 
+shell_title() {
+	case "${SHELL:-}" in
+	*fish)
+		command -v fish >/dev/null 2>&1 || return 0
+		fish -lc 'fish_title' 2>/dev/null | head -n 1
+		;;
+	*)
+		return 0
+		;;
+	esac
+}
+
 remember_title() {
 	base_title="${AGENT_GHOSTTY_TITLE_BASE:-}"
 	if [ -z "$base_title" ] && [ -f "$title_file" ]; then
@@ -112,6 +124,9 @@ remember_title() {
 		case "$prev" in
 		working | blocked) base_title="$(clean_title_name "$base_title")" ;;
 		esac
+	fi
+	if [ -z "$base_title" ]; then
+		base_title="$(shell_title)"
 	fi
 	if [ -n "$base_title" ]; then
 		printf '%s' "$base_title" >"$title_file" 2>/dev/null || true
