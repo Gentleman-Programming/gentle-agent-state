@@ -18,7 +18,21 @@ assert_eq() {
   printf 'ok - %s\n' "$label"
 }
 
-printf '1..8\n'
+wait_for_log() {
+  file="$1"
+  expected="$2"
+  label="$3"
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if grep -qx "$expected" "$file" 2>/dev/null; then
+      printf 'ok - %s\n' "$label"
+      return 0
+    fi
+    sleep 0.1
+  done
+  fail "$label: expected log line $(printf %q "$expected")"
+}
+
+printf '1..15\n'
 
 # Keep shell syntax coverage deterministic and dependency-free.
 bash -n install.sh uninstall.sh scripts/*.sh tmux/scripts/*.sh tests/*.sh
@@ -38,8 +52,41 @@ assert_eq "$osc_idle" "$actual" "Ghostty dispatcher emits idle title"
 tmp_home="$(mktemp -d)"
 cleanup() { rm -rf "$tmp_home" "${install_home:-}" "${adapter_home:-}"; }
 trap cleanup EXIT
-mkdir -p "$tmp_home/.config/agent-state/scripts"
+mkdir -p "$tmp_home/.config/agent-state/scripts" "$tmp_home/fake-bin" "$tmp_home/runtime"
 cp scripts/*.sh "$tmp_home/.config/agent-state/scripts/"
+
+cat > "$tmp_home/fake-bin/afplay" <<'AFPLAY'
+#!/usr/bin/env bash
+printf '%s\n' "$(basename "$1")" >> "$AGENT_SOUND_LOG"
+AFPLAY
+chmod +x "$tmp_home/fake-bin/afplay"
+touch "$tmp_home/blocked.aiff" "$tmp_home/idle.aiff"
+sound_log="$tmp_home/sound.log"
+: > "$sound_log"
+sound_env=(env -i HOME="$tmp_home" PATH="$tmp_home/fake-bin:$PATH" TERM_PROGRAM=ghostty AGENT_GHOSTTY_FORCE_STDOUT=1 XDG_RUNTIME_DIR="$tmp_home/runtime" AGENT_GHOSTTY_STATE_KEY=contract AGENT_SOUND_BLOCKED="$tmp_home/blocked.aiff" AGENT_SOUND_IDLE="$tmp_home/idle.aiff" AGENT_SOUND_LOG="$sound_log")
+
+actual="$(${sound_env[@]} bash scripts/agent-report.sh ghostty blocked)"
+assert_eq "$osc_blocked" "$actual" "Ghostty blocked keeps title while playing sound"
+wait_for_log "$sound_log" "blocked.aiff" "Ghostty blocked plays blocked sound"
+
+"${sound_env[@]}" bash scripts/agent-report.sh ghostty blocked >/dev/null
+line_count="$(wc -l < "$sound_log" | tr -d ' ')"
+assert_eq "1" "$line_count" "Ghostty repeated blocked does not replay sound"
+
+"${sound_env[@]}" bash scripts/agent-report.sh ghostty idle >/dev/null
+line_count="$(wc -l < "$sound_log" | tr -d ' ')"
+assert_eq "1" "$line_count" "Ghostty idle directly after blocked stays quiet"
+
+"${sound_env[@]}" bash scripts/agent-report.sh ghostty working >/dev/null
+"${sound_env[@]}" bash scripts/agent-report.sh ghostty idle >/dev/null
+wait_for_log "$sound_log" "idle.aiff" "Ghostty idle after working plays idle sound"
+
+key_runtime="$tmp_home/key-runtime"
+mkdir -p "$key_runtime"
+env -i HOME="$tmp_home" PATH="$tmp_home/fake-bin:$PATH" TERM_PROGRAM=ghostty AGENT_GHOSTTY_FORCE_STDOUT=1 XDG_RUNTIME_DIR="$key_runtime" AGENT_SOUND_BLOCKED="$tmp_home/blocked.aiff" AGENT_SOUND_IDLE="$tmp_home/idle.aiff" AGENT_SOUND_LOG="$sound_log" bash scripts/agent-report.sh ghostty blocked >/dev/null
+[ ! -e "$key_runtime/agent-state-ghostty/not_a_tty.state" ] || fail "Ghostty default state key used literal not_a_tty"
+find "$key_runtime/agent-state-ghostty" -type f -name '*.state' | grep -q . || fail "Ghostty default state key did not create a state file"
+printf 'ok - Ghostty default state key avoids not_a_tty collision\n'
 
 hook_env=(env -i HOME="$tmp_home" PATH="$PATH" TERM_PROGRAM=ghostty AGENT_GHOSTTY_FORCE_STDOUT=1)
 
@@ -94,3 +141,15 @@ handlers.get("agent_start")();
 await new Promise((resolve) => setTimeout(resolve, 100));
 NODE
 assert_eq "<ghostty>|<working>|<>" "$(cat "$log")" "pi adapter reports Ghostty backend id"
+
+: > "$log"
+"${node_env[@]}" node --input-type=module <<'NODE'
+const mod = await import(`file://${process.cwd()}/adapters/pi/gentle-agent-state.ts`);
+const handlers = new Map();
+const pi = { on(name, handler) { handlers.set(name, handler); } };
+mod.default(pi);
+handlers.get("tool_call")?.({ id: "ask-1", toolName: "functions.ask_user_question" });
+handlers.get("tool_execution_update")?.({ id: "ask-1", toolName: "functions.ask_user_question" });
+await new Promise((resolve) => setTimeout(resolve, 100));
+NODE
+assert_eq "<ghostty>|<blocked>|<>" "$(cat "$log")" "pi prompt update keeps Ghostty blocked"

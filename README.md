@@ -8,7 +8,7 @@ emit lifecycle events, this project normalizes them into `working`, `blocked`, a
 
 - **tmux:** colored state markers in the window/tab bar, rolled up from all panes.
 - **Zellij:** the tab title can roll up agent state; the exact agent pane title changes too.
-- **Ghostty:** the native window/tab title shows the latest agent state.
+- **Ghostty:** the native window/tab title shows the latest agent state and plays transition sounds.
 - **Agents:** opencode, pi, Claude Code, and Codex.
 
 ```text
@@ -48,8 +48,8 @@ Want only specific agents?
 | State | Meaning | tmux display | Zellij display | Ghostty display | Alert |
 |-------|---------|--------------|----------------|-----------------|-------|
 | `working` | Agent is running | `o` in orange | pane title: `o` | title: `agent: working` | none |
-| `blocked` | Agent is waiting for you | `x` in red | pane title: `x` | title: `agent: blocked` | sound + flash/message in tmux/Zellij |
-| `idle` | Agent finished or is not running | no marker | pane title restored | title: `agent: idle` | sound after busy state in tmux/Zellij |
+| `blocked` | Agent is waiting for you | `x` in red | pane title: `x` | title: `agent: blocked` | sound + flash/message in tmux/Zellij, sound in Ghostty |
+| `idle` | Agent finished or is not running | no marker | pane title restored | title: `agent: idle` | sound after busy state |
 
 ### tmux behavior
 
@@ -73,8 +73,11 @@ backend best-effort restores the original tab name when the tab returns to idle.
 
 ### Ghostty behavior
 
-Native Ghostty support uses `TERM_PROGRAM=ghostty` and updates the terminal title
-with OSC escape sequences. Ghostty does not expose tmux/Zellij-style pane rollup
+Native Ghostty support uses `TERM_PROGRAM=ghostty`, updates the terminal title
+with OSC escape sequences, and plays the same best-effort transition sounds as
+other backends: blocked sound when the state becomes `blocked`, and idle sound
+when `working` returns to `idle`. A direct `blocked` → `idle` transition stays
+quiet to avoid double-playing blocked and success sounds for prompts. Ghostty does not expose tmux/Zellij-style pane rollup
 to these shell hooks, so this backend intentionally shows only the latest state
 for the current terminal session. If you run tmux or Zellij inside Ghostty, the
 tmux/Zellij backend still takes precedence.
@@ -148,7 +151,7 @@ the edge with thin adapters:
 opencode ┐
 pi       ├──▶  agent-report.sh  ──▶  tmux backend
 Claude   │                       ├─▶  Zellij backend
-Codex    ┘                       └─▶  Ghostty title backend
+Codex    ┘                       └─▶  Ghostty title + sound backend
 ```
 
 The core vocabulary is deliberately small:
@@ -169,7 +172,7 @@ not changes to every multiplexer backend.
 | `~/.config/agent-state/scripts/agent-report.sh` | neutral dispatcher |
 | `~/.config/agent-state/scripts/tmux-agent-report.sh` | tmux backend |
 | `~/.config/agent-state/scripts/zellij-agent-report.sh` | Zellij backend |
-| `~/.config/agent-state/scripts/ghostty-agent-report.sh` | Ghostty title backend |
+| `~/.config/agent-state/scripts/ghostty-agent-report.sh` | Ghostty title + sound backend |
 | `~/.config/agent-state/scripts/hook-adapter.sh` | Claude/Codex hook adapter |
 
 ### tmux-specific files

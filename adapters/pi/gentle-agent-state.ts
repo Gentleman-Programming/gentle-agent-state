@@ -116,8 +116,9 @@ export default function (pi) {
 
   pi.on?.("tool_call", markBlockedIfNeeded);
 
-  pi.on?.("tool_execution_update", markWorkingIfBlockedToolContinues);
-
+  // Do not flip blocked prompts back to working on intermediate updates. Pi can
+  // emit progress/update events while the user prompt is still visible, and native
+  // Ghostty would otherwise overwrite the blocked title and double-fire sounds.
   pi.on?.("tool_result", markWorkingIfBlockedToolContinues);
 
   pi.on?.("tool_execution_end", markWorkingIfBlockedToolContinues);
